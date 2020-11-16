@@ -1,22 +1,18 @@
 
 
-import requests
 from secrets import username, password
 
 from time import sleep
+from langdetect import detect
+
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 
+import requests
 import csv
 import json
-
-'''
- * check if the comment contains more than 80% bangla text
- * reduce newlines
- * 50% positive, 50% negative comment
-'''
-
+import multiprocessing
 
 class FacebookBot():
     
@@ -42,38 +38,60 @@ class FacebookBot():
         sleep(2)
     
     
+    def load_all (self):
+        #click more
+        turn = 20
+        while turn > 0:
+            try:
+                more = self.driver.find_element_by_xpath('//*[@class="_108_"]')
+                more.click()
+                sleep(2)
+                turn -=1
+            except Exception:
+                break
+    
     # go to the post via mbasic.facebook.com
     # paste the post url
     def get_comments (self, url):
         self.driver.get(url)
         
-        #click more
-        while True:
-            try:
-                loadMoreButton = self.driver.find_element_by_xpath('//*[@class="_108_"]')
-                time.sleep(1)
-                loadMoreButton.click()
-                time.sleep(1)
-            except Exception as e:
-                break
+        sleep(5)
+        
+        p = multiprocessing.Process(target=self.load_all())
+        p.start()
+
+        p.join(60)
+
+        if p.is_alive():
+            print('Loading complete!')
+            #p.terminate()
+            p.kill()
+            p.join()
         
         names = []
-        links = self.driver.find_elements_by_tag_name('div')
+        links = self.driver.find_elements_by_xpath('//*[@class="_2b05"]')
+        #//table[@id='customers']//tr[not(.//*[starts-with(text(),'C')])]
+        #links = self.driver.find_elements_by_xpath('//div[@class="_2b05"]//div[not(.//*[@class="_7_cb _3-8m"])]')
         for link in links:
-            if link.get_attribute('class') == '_2b05':
-                names.append(link.text)
+            names.append(link.text.replace('\n', ' '))
         
         comments = []
-        links = self.driver.find_elements_by_tag_name('div')
+        links = self.driver.find_elements_by_xpath('//*[@data-sigil="comment-body"]')
         for link in links:
-            if link.get_attribute('data-sigil') is not None and link.get_attribute('data-sigil') == 'comment-body':
-                comments.append(link.text)
-                
+            comments.append(link.text.replace('\n', ' ').replace(',', ' ').replace('"', ' '))
+            
+        '''
+        while True:
+            try:
+                link = self.driver.find_element_by_xpath('//*[@data-sigil="comment-body"]').text.split('\n')
+        '''
+        
         new = FacebookBot()
         new.login(username, password)
                 
         reacts = []
         links = self.driver.find_elements_by_tag_name('a')
+        #links = self.driver.find_elements_by_xpath('//*[@class="_14v8 _4edm"]')
         for link in links:
             if link.get_attribute('class') == '_14v8 _4edm':
                 new.driver.get(link.get_attribute('href'))
@@ -107,12 +125,14 @@ class FacebookBot():
             writer = csv.writer(file)
             writer.writerow(["Name", "Comment", "Reacts", "Like", "Love", "Care", "Haha", "Wow", "Sad", "Angry"])
             for (name, comment, react) in zip(names, comments, reacts):
-                t = (name, comment) + react
-                writer.writerow(t)
+                try:
+                    if detect(comment) == 'bn':
+                        t = (name, comment) + react
+                        writer.writerow(t)
+                except Exception as e:
+                    continue
         
         self.driver.close()
-
-
 
 if __name__ == '__main__':
     bot = FacebookBot()
